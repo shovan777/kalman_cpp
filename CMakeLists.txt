@@ -8,7 +8,11 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 include_directories(src)
 include_directories(include)
 
-add_executable(kalman_cpp src/main.cpp)
+file (GLOB MAIN 
+    src/*.cpp
+    )
+
+add_executable(kalman_cpp ${MAIN})
 
 include(CTest)
 enable_testing()
