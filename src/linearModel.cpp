@@ -30,9 +30,9 @@ matrix *LinearModel::getTransitionMatrix()
 void LinearModel::updateState(matrix *input_vec)
 {
     // update the state vector
-    this->state_vec = mat_mul(this->transition_matrix, state_vec);
+    this->state_vec = mat_mul(this->transition_matrix, this->state_vec); //TODO: check if state_vec is referenced properly
     matrix *temp = mat_mul(this->input_matrix, input_vec);
-    this->state_vec = mat_add(temp, state_vec);
+    this->state_vec = mat_add(temp, this->state_vec);
     free(temp->data);
 }
 

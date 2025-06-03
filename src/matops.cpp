@@ -22,7 +22,7 @@ matrix *mat_mul(matrix *A, matrix *B)
     matrix *C = new matrix;
     C->rows = m;
     C->cols = p;
-    C->data = (double *)malloc(C->rows * C->cols * sizeof(double));
+    C->data = (long double*)malloc(C->rows * C->cols * sizeof(long double));
 
     // #pragma omp parallel num_threads(4)
     // {
@@ -51,7 +51,7 @@ matrix *mat_add(matrix *A, matrix *B)
     int n = A->cols;
     C->rows = m;
     C->cols = n;
-    C->data = (double *)malloc(C->rows * C->cols * sizeof(double));
+    C->data = (long double *)malloc(C->rows * C->cols * sizeof(long double));
     for (int i = 0; i < C->rows; i++)
     {
         for (int j = 0; j < C->cols; j++)
@@ -69,7 +69,7 @@ matrix *mat_sub(matrix *A, matrix *B)
     int n = A->cols;
     C->rows = m;
     C->cols = n;
-    C->data = (double *)malloc(C->rows * C->cols * sizeof(double));
+    C->data = (long double *)malloc(C->rows * C->cols * sizeof(long double));
     for (int i = 0; i < C->rows; i++)
     {
         for (int j = 0; j < C->cols; j++)
@@ -100,7 +100,7 @@ matrix *mat_inv(matrix *A)
         // throw an error
         return NULL;
     }
-    identity_mat->data = (double *)malloc(num_rows * num_rows * sizeof(double));
+    identity_mat->data = (long double *)malloc(num_rows * num_rows * sizeof(long double));
 
     // start with an identity matrix
     for (int i = 0; i < num_rows; i++)
@@ -126,7 +126,7 @@ matrix *mat_inv(matrix *A)
     {
         int pivot_row = row * num_rows;
         // get the diagonal element as pivot
-        double pivot = A->data[pivot_row + row];
+        long double pivot = A->data[pivot_row + row];
 
         // if pivot is zero, matrix is not invertible
         if (pivot == 0.0)
@@ -152,7 +152,7 @@ matrix *mat_inv(matrix *A)
                 continue;
             }
             int cur_row = j * num_rows;
-            double factor = A->data[cur_row + row];
+            long double factor = A->data[cur_row + row];
             // every other element in that row is subtractor by factor times pivot row
             for (int col = 0; col < num_rows; col++)
             {
@@ -170,7 +170,7 @@ matrix *mat_transpose(matrix *A)
     matrix *B = new matrix;
     B->rows = A->cols;
     B->cols = A->rows;
-    B->data = (double *)malloc(B->rows * B->cols * sizeof(double));
+    B->data = (long double *)malloc(B->rows * B->cols * sizeof(long double));
     for (int i = 0; i < A->rows; i++)
     {
         for (int j = 0; j < A->cols; j++)
