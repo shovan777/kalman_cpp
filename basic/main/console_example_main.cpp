@@ -16,78 +16,96 @@
 #include "esp_vfs_fat.h"
 #include "cmd_system.h"
 #include "include/matops.h"
+#include "include/linearModel.h"
 
-/*
- * We warn if a secondary serial console is enabled. A secondary serial console is always output-only and
- * hence not very useful for interactive console applications. If you encounter this warning, consider disabling
- * the secondary serial console in menuconfig unless you know what you are doing.
- */
 #if SOC_USB_SERIAL_JTAG_SUPPORTED
 #if !CONFIG_ESP_CONSOLE_SECONDARY_NONE
 #warning "A secondary serial console is not useful when using the console component. Please disable it in menuconfig."
 #endif
 #endif
 
-static const char* TAG = "example";
+static const char *TAG = "example";
 #define PROMPT_STR CONFIG_IDF_TARGET
 
-/* Console command history can be stored to and loaded from a file.
- * The easiest way to do this is to use FATFS filesystem on top of
- * wear_levelling library.
- */
-// #if CONFIG_CONSOLE_STORE_HISTORY
+long double delta_t = 0.1;
+long double meas_rul = 0.0;
+// Linear model for predicting transformer RUL
+// state vector: [rul]
+// transition matrix: [1]
+// input matrix: [-1]
+// input vector: [delta_t]
+// measurement matrix: [1]
+// measurement vector: [rul]
 
-// #define MOUNT_PATH "/data"
-// #define HISTORY_PATH MOUNT_PATH "/history.txt"
+LinearModel lm = LinearModel(
+    // motion starts at rest
+    new matrix{1, 1, new long double[1]{180000.0}},
+    new matrix{1, 1, new long double[1]{1.0}},
+    new matrix{1, 1, new long double[1]{-1.0}});
 
-// static void initialize_filesystem(void)
-// {
-//     static wl_handle_t wl_handle;
-//     const esp_vfs_fat_mount_config_t mount_config = {
-//             .max_files = 4,
-//             .format_if_mount_failed = true
-//     };
-//     esp_err_t err = esp_vfs_fat_spiflash_mount_rw_wl(MOUNT_PATH, "storage", &mount_config, &wl_handle);
-//     if (err != ESP_OK) {
-//         ESP_LOGE(TAG, "Failed to mount FATFS (%s)", esp_err_to_name(err));
-//         return;
-//     }
-// }
-// #endif // CONFIG_STORE_HISTORY
-
-// static void initialize_nvs(void)
-// {
-//     esp_err_t err = nvs_flash_init();
-//     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-//         ESP_ERROR_CHECK( nvs_flash_erase() );
-//         err = nvs_flash_init();
-//     }
-//     ESP_ERROR_CHECK(err);
-// }
+// initialize
+// state covariance matrix
+matrix *stateCOVMat = new matrix{1, 1, new long double[1]{0.01}};
+// process noise covariance matrix
+matrix *processCOVMat = new matrix{1, 1, new long double[1]{10.0}};
+// measurement noise covariance matrix
+matrix *measurementCOVMat = new matrix{1, 1, new long double[1]{0.01}};
+// kalman gain matrix
+matrix *kalmanGainMat = new matrix{1, 1, new long double[1]{0.01}};
+// measurement matrix
+matrix *measurementMat = new matrix{1, 1, new long double[1]{1.0}};
 
 static int float_input_handler(int argc, char **argv)
 {
-    if (argc != 2) {
+    if (argc != 2)
+    {
         printf("Usage: float_input <value>\n");
         return 1;
     }
-    float value = atof(argv[1]);
+    float inp_value = atof(argv[1]);
     // float value = strtof(argv[1], NULL);
-    printf("Received float value: %f\n", value);
+    printf("Received RUL value: %f\n", inp_value);
 
-    printf("Just randomly multiplying matrixes because I can:\n");
-    // creaate a 2x2 matrix
-    matrix *A = new matrix{2, 2, new long double[4]{1.0, 0.0, 1.0, 0.0}};
-    matrix *B = new matrix{2, 2, new long double[4]{5.0, 6.0, 7.0, 8.0}};
+    printf("Running single step of KF......\n");
 
-    // multiply the two matrices
-    matrix *C = mat_mul(A, B);
-    display_matrix(C);
+    meas_rul = inp_value; // Take the float input as measurement RUL
+    // For testing, we can use a fixed delta_t
+
+    // Take the float input as measurement RUL and estimate the next state
+
+    // ****PART 1: PREDICTION STEP
+    matrix *input_vec = new matrix{1, 1, new long double[1]{delta_t}};
+    // Predict the next state vector: x = Fx + Bu
+    lm.updateState(input_vec);
+    // z_pred = Hx
+    matrix *predMeasurement = mat_mul(measurementMat, lm.getStateVector());
+
+    // P = FPF^T + Q, where Q is process noise
+    stateCOVMat = mat_mul(lm.getTransitionMatrix(), mat_mul(stateCOVMat, mat_transpose(lm.getTransitionMatrix())));
+    stateCOVMat = mat_add(stateCOVMat, processCOVMat);
+
+    // ****PART 2: UPDATE STEP
+    // Calculate the Kalman gain: K = P * H^T * (H * P * H^T + R)^-1
+    matrix *temp = mat_mul(mat_mul(measurementMat, stateCOVMat), mat_transpose(measurementMat));
+    temp = mat_add(temp, measurementCOVMat);
+    kalmanGainMat = mat_mul(mat_mul(stateCOVMat, mat_transpose(measurementMat)), mat_inv(temp));
+
+    // innovation/error: y_err = z - Hx, where measurement vector z is supplied externally.
+    matrix *y_err = mat_sub(new matrix{1, 1, new long double[1]{meas_rul}}, predMeasurement);
+
+    // correction step: x = x + K*y_err
+    lm.setStateVector(mat_add(lm.getStateVector(), mat_mul(kalmanGainMat, y_err)));
+
+    // P = (I - KH)P
+    stateCOVMat = mat_mul(
+        mat_sub(new matrix{1, 1, new long double[1]{1.0}},
+                mat_mul(kalmanGainMat, measurementMat)),
+        stateCOVMat);
+    printf("State vector after correction: %Lf\n", lm.getStateVector()->data[0]);
 
     // free the matrices
-    free(A->data);
-    free(B->data);
-    free(C->data);
+    free(input_vec->data);
+
     return 0;
 }
 
@@ -96,14 +114,16 @@ static esp_console_cmd_t float_input_cmd = {
     .help = "Input a float value",
     .hint = NULL,
     .func = &float_input_handler,
-    .argtable = NULL
-};
+    .argtable = NULL};
 void register_float_input_command(void)
 {
     esp_err_t err = esp_console_cmd_register(&float_input_cmd);
-    if (err != ESP_OK) {
+    if (err != ESP_OK)
+    {
         ESP_LOGE(TAG, "Failed to register float_input command: %s", esp_err_to_name(err));
-    } else {
+    }
+    else
+    {
         ESP_LOGI(TAG, "Registered float_input command");
     }
 }
@@ -118,27 +138,11 @@ extern "C" void app_main(void)
     repl_config.prompt = PROMPT_STR ">";
     repl_config.max_cmdline_length = CONFIG_CONSOLE_MAX_COMMAND_LINE_LENGTH;
 
-    // initialize_nvs();
-
-// #if CONFIG_CONSOLE_STORE_HISTORY
-//     initialize_filesystem();
-//     repl_config.history_save_path = HISTORY_PATH;
-//     ESP_LOGI(TAG, "Command history enabled");
-// #else
-//     ESP_LOGI(TAG, "Command history disabled");
-// #endif
-    
-
-
     /* Register commands */
     esp_console_register_help_command();
     register_system_common();
     register_system_sleep();
     register_float_input_command();
-// #if CONFIG_ESP_WIFI_ENABLED
-//     register_wifi();
-// #endif
-    // register_nvs();
 
 #if defined(CONFIG_ESP_CONSOLE_UART_DEFAULT) || defined(CONFIG_ESP_CONSOLE_UART_CUSTOM)
     esp_console_dev_uart_config_t hw_config = ESP_CONSOLE_DEV_UART_CONFIG_DEFAULT();
